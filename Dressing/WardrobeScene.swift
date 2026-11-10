@@ -134,7 +134,7 @@ enum ModelFactory {
         default:
             let back = item.files[.back].flatMap(ImageStore.texture)
             let seed = Float(abs(item.id.hashValue % 1000)) / 100
-            let depth: Float = item.category == .accessory ? 0.03 : (item.category == .pants ? 0.035 : 0.05)
+            let depth: Float = item.category == .accessory ? 0.03 : (item.category == .pants ? 0.03 : 0.04)
             made = ClothMesh.make(front: mainImg, back: back, width: Float(item.category.realWidth), seed: seed, depth: depth,
                                   folds: item.category == .accessory ? 0 : 0.012)
         }

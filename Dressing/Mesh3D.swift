@@ -133,7 +133,7 @@ enum ClothMesh {
         let h = w * aspect
         let node = SCNNode()
         node.name = "cloth"
-        let field = InflationField(front, columns: 72)
+        let field = InflationField(front, columns: 120)
         let f = surface(field, width: w, height: h, side: 1, seed: seed, depth: depth, folds: folds)
         f.firstMaterial = Materials.fabric(front)
         let b = surface(field, width: w, height: h, side: -1, seed: seed, depth: depth * 0.85, folds: folds)
@@ -229,6 +229,17 @@ struct InflationField {
         // Normalise : le torse atteint 1 à environ 18 % de la largeur depuis le bord.
         let scale = Float(cols) * 0.18 * 3
         for k in 0..<d.count { d[k] = min(1, d[k] / scale) }
+        // Adoucit le relief (évite les marches le long du contour), sans toucher au bord exact.
+        for _ in 0..<2 {
+            var s = d
+            for j in 1..<(rows - 1) {
+                for i in 1..<(cols - 1) where d[j * cols + i] > 0 {
+                    let n = d[j * cols + i - 1] + d[j * cols + i + 1] + d[(j - 1) * cols + i] + d[(j + 1) * cols + i]
+                    s[j * cols + i] = (d[j * cols + i] * 4 + n) / 8
+                }
+            }
+            d = s
+        }
     }
 
     func value(_ i: Int, _ j: Int) -> Float { d[min(rows - 1, max(0, j)) * cols + min(cols - 1, max(0, i))] }
