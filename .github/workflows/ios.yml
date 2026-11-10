@@ -62,7 +62,7 @@ jobs:
 
       - name: Compiler pour le simulateur
         run: |
-          xcodebuild -project Dressing.xcodeproj -target Dressing -configuration Debug -sdk iphonesimulator \
+          xcodebuild -project Dressing.xcodeproj -target Dressing -configuration Release -sdk iphonesimulator \
             -arch arm64 SYMROOT="$PWD/simbuild" CODE_SIGNING_ALLOWED=NO build > sim.log 2>&1 || (grep -n "error:" sim.log | head -20; exit 1)
 
       - name: Captures d'écran (simulateur)
@@ -76,7 +76,7 @@ jobs:
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
-          xcrun simctl install "$UDID" simbuild/Debug-iphonesimulator/Dressing.app
+          xcrun simctl install "$UDID" simbuild/Release-iphonesimulator/Dressing.app
           mkdir -p shots
           shot () {
             xcrun simctl terminate "$UDID" com.tepsko.dressing 2>/dev/null || true

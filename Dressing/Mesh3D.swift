@@ -1,5 +1,6 @@
 import SceneKit
 import UIKit
+import simd
 
 // MARK: - Transparence d'une image (pour sculpter les volumes et ignorer le fond)
 

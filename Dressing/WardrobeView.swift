@@ -162,11 +162,11 @@ struct LightingSheet: View {
                 Section("Ambiances") {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(LightSettings.presets, id: \.0) { p in
+                            ForEach(Array(LightSettings.presets.enumerated()), id: \.offset) { _, p in
                                 Button(p.0) { withAnimation { settings = p.1 } }
                                     .buttonStyle(.bordered)
                                     .buttonBorderShape(.capsule)
-                                    .tint(settings == p.1 ? .accentColor : .secondary)
+                                    .tint(settings == p.1 ? Color.accentColor : Color.secondary)
                             }
                         }
                         .padding(.vertical, 2)
@@ -214,7 +214,7 @@ struct LightingSheet: View {
     }
 
     private var ledColor: Binding<Color> {
-        Binding(get: { Color(settings.led) }, set: { c in
+        Binding(get: { Color(uiColor: settings.led) }, set: { c in
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             UIColor(c).getRed(&r, green: &g, blue: &b, alpha: &a)
             settings.ledColor = [Double(r), Double(g), Double(b)].map { max(0, min(1, $0)) }
@@ -239,11 +239,26 @@ struct InspectView: View {
     let garment: Garment
     let light: LightSettings
     @Environment(\.dismiss) private var dismiss
+    @State private var model: SCNNode?
+    @State private var failed = false
 
     var body: some View {
         ZStack(alignment: .top) {
-            InspectSceneView(item: garment.wardrobeItem, light: light)
-                .ignoresSafeArea()
+            Color(red: 0.08, green: 0.075, blue: 0.07).ignoresSafeArea()
+            if let model {
+                InspectSceneView(item: garment.wardrobeItem, model: model, light: light)
+                    .ignoresSafeArea()
+            } else {
+                VStack(spacing: 12) {
+                    if failed {
+                        Text("Impossible de construire le modèle 3D avec ces photos.").foregroundStyle(.white)
+                    } else {
+                        ProgressView().tint(.white)
+                        Text("Construction du modèle 3D…").font(.subheadline).foregroundStyle(.white.opacity(0.8))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(garment.title).font(.headline)
@@ -261,6 +276,11 @@ struct InspectView: View {
             .padding(.horizontal, 12)
             .environment(\.colorScheme, .dark)
         }
+        .onAppear {
+            ModelFactory.load(garment.wardrobeItem) { n in
+                if let n { model = n } else { failed = true }
+            }
+        }
         .overlay(alignment: .bottom) {
             Text("Un doigt pour tourner · deux doigts pour zoomer ou déplacer · double-touche pour recentrer")
                 .font(.footnote)
@@ -274,6 +294,7 @@ struct InspectView: View {
 
 struct InspectSceneView: UIViewRepresentable {
     let item: WardrobeItem
+    let model: SCNNode
     let light: LightSettings
 
     func makeUIView(context: Context) -> SCNView {
@@ -284,7 +305,7 @@ struct InspectSceneView: UIViewRepresentable {
         scene.background.contents = UIColor(red: 0.08, green: 0.075, blue: 0.07, alpha: 1)
 
         let holder = SCNNode()
-        if let model = ModelFactory.node(for: item) {
+        do {
             if item.category.hangs {
                 let hanger = HangerModel.make(width: item.category == .pants ? 0.38 : 0.43)
                 holder.addChildNode(hanger)

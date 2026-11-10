@@ -49,10 +49,22 @@ struct WardrobeItem: Equatable {
 /// Fabrique (et garde en mémoire) le modèle 3D de chaque habit.
 enum ModelFactory {
     private static var cache: [String: SCNNode] = [:]
+    private static let lock = NSLock()
+
+    /// Construit le modèle en arrière-plan puis le rend sur le fil principal.
+    static func load(_ item: WardrobeItem, completion: @escaping (SCNNode?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let n = node(for: item)
+            DispatchQueue.main.async { completion(n) }
+        }
+    }
 
     static func node(for item: WardrobeItem) -> SCNNode? {
         let key = item.id.uuidString + item.files.values.sorted().joined()
-        if let n = cache[key] { return n.clone() }
+        lock.lock()
+        let cached = cache[key]
+        lock.unlock()
+        if let n = cached { return n.clone() }
         var made: SCNNode?
         let main = item.category.mainView
         guard let mainFile = item.files[main], let mainImg = ImageStore.texture(mainFile) else { return nil }
@@ -70,7 +82,7 @@ enum ModelFactory {
                                   folds: item.category == .accessory ? 0 : 0.012)
         }
         guard let n = made else { return nil }
-        cache[key] = n
+        lock.lock(); cache[key] = n; lock.unlock()
         return n.clone()
     }
 
@@ -81,7 +93,7 @@ enum ModelFactory {
         return n
     }
 
-    static func clear() { cache = [:] }
+    static func clear() { lock.lock(); cache = [:]; lock.unlock() }
 }
 
 // MARK: - La penderie en 3D
@@ -206,7 +218,11 @@ final class WardrobeScene {
 
     // MARK: Construction
 
+    private var generation = 0
+
     func build(_ items: [WardrobeItem]) {
+        generation += 1
+        let gen = generation
         root.childNodes.forEach { $0.removeFromParentNode() }
         holders = [:]; spinners = [:]; rest = [:]; alphaMaps = [:]; categories = [:]
         selected = nil
@@ -225,13 +241,17 @@ final class WardrobeScene {
         // Habits sur la tringle, sur leur cintre, en éventail.
         let start = -Float(max(0, hanging.count - 1)) * spacing / 2
         for (i, item) in hanging.enumerated() {
-            guard let cloth = ModelFactory.node(for: item) else { continue }
             let holder = SCNNode()
             let spin = SCNNode()
             let hanger = HangerModel.make(width: item.category == .pants ? 0.38 : 0.43)
             spin.addChildNode(hanger)
-            cloth.position = SCNVector3(0, -0.052, 0)
-            spin.addChildNode(cloth)
+            ModelFactory.load(item) { [weak self] cloth in
+                guard let self, gen == self.generation, let cloth else { return }
+                cloth.position = SCNVector3(0, -0.052, 0)
+                cloth.opacity = 0
+                spin.addChildNode(cloth)
+                cloth.runAction(.fadeIn(duration: 0.25))
+            }
             holder.addChildNode(spin)
             holder.position = SCNVector3(start + Float(i) * spacing, Self.railY, Self.railZ)
             holder.eulerAngles = SCNVector3(0, -0.98, 0)
@@ -241,9 +261,13 @@ final class WardrobeScene {
         // Chaussures en 3D, posées sur la commode.
         let sStart = -Float(max(0, shoes.count - 1)) * 0.36 / 2
         for (i, item) in shoes.enumerated() {
-            guard let shoe = ModelFactory.node(for: item) else { continue }
             let holder = SCNNode(), spin = SCNNode()
-            spin.addChildNode(shoe)
+            ModelFactory.load(item) { [weak self] shoe in
+                guard let self, gen == self.generation, let shoe else { return }
+                shoe.opacity = 0
+                spin.addChildNode(shoe)
+                shoe.runAction(.fadeIn(duration: 0.3))
+            }
             holder.addChildNode(spin)
             holder.position = SCNVector3(sStart + Float(i) * 0.36, Self.drawerTop, 0.34)
             holder.eulerAngles = SCNVector3(0, i % 2 == 0 ? 0.5 : -0.5, 0)
@@ -253,11 +277,15 @@ final class WardrobeScene {
         // Accessoires sur l'étagère du haut.
         let aStart = -Float(max(0, accessories.count - 1)) * 0.34 / 2
         for (i, item) in accessories.enumerated() {
-            guard let acc = ModelFactory.node(for: item) else { continue }
-            let (minB, _) = acc.boundingBox
-            acc.position = SCNVector3(0, -minB.y, 0)
             let holder = SCNNode(), spin = SCNNode()
-            spin.addChildNode(acc)
+            ModelFactory.load(item) { [weak self] acc in
+                guard let self, gen == self.generation, let acc else { return }
+                let (minB, _) = acc.boundingBox
+                acc.position = SCNVector3(0, -minB.y, 0)
+                acc.opacity = 0
+                spin.addChildNode(acc)
+                acc.runAction(.fadeIn(duration: 0.25))
+            }
             holder.addChildNode(spin)
             holder.position = SCNVector3(aStart + Float(i) * 0.34, Self.shelfY + 0.0125, 0.3)
             register(item, holder: holder, spin: spin)
@@ -470,8 +498,12 @@ final class WardrobeScene {
         holder.runAction(.sequence([lift, out, hangs ? swing(0.07, y: 0) : .wait(duration: 0)]))
 
         // Cadre l'habit en entier.
-        let (minB, maxB) = holder.boundingBox
-        let h = max(0.18, maxB.y - minB.y)
+        var (minB, maxB) = holder.boundingBox
+        if maxB.y - minB.y < 0.12 {
+            // Modèle pas encore chargé : taille typique.
+            minB.y = hangs ? -0.8 : 0; maxB.y = hangs ? 0.02 : 0.14
+        }
+        let h = max(0.12, maxB.y - minB.y)
         lookY = hangs ? target.y + minB.y + h / 2 : target.y + h / 2
         let fov = Float((cameraNode.camera?.fieldOfView ?? 52) * .pi / 180)
         camX = r.0.x
