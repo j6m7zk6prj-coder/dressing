@@ -200,14 +200,22 @@ struct GarmentDetailView: View {
     var body: some View {
         List {
             Section {
-                if let img = ImageStore.load(garment.imageFile) {
-                    Image(uiImage: img)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: 340)
-                        .padding(.vertical, 12)
-                        .shadow(color: .black.opacity(0.2), radius: 12, y: 8)
+                let files = PhotoView.allCases.compactMap { garment.file($0) }
+                TabView {
+                    ForEach(files, id: \.self) { f in
+                        if let img = ImageStore.load(f) {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFit()
+                                .padding(.vertical, 12)
+                                .padding(.bottom, files.count > 1 ? 24 : 0)
+                                .shadow(color: .black.opacity(0.2), radius: 12, y: 8)
+                        }
+                    }
                 }
+                .tabViewStyle(.page(indexDisplayMode: files.count > 1 ? .always : .never))
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+                .frame(height: 360)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(garment.title).font(.title2.bold())
                     if !garment.subtitle.isEmpty {
@@ -282,7 +290,7 @@ struct GarmentDetailView: View {
         .sheet(isPresented: $editing) { EditGarmentView(garment: garment) }
         .confirmationDialog("Supprimer \(garment.title) ?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Supprimer", role: .destructive) {
-                ImageStore.delete(garment.imageFile)
+                garment.allFiles.forEach(ImageStore.delete)
                 context.delete(garment)
                 try? context.save()
                 dismiss()
@@ -299,11 +307,10 @@ struct EditGarmentView: View {
     let garment: Garment
     @Environment(\.dismiss) private var dismiss
     @State private var draft = GarmentDraft()
-    @State private var useCutout = true
 
     var body: some View {
         NavigationStack {
-            GarmentForm(draft: $draft, image: ImageStore.load(garment.imageFile), useCutout: $useCutout)
+            GarmentForm(draft: $draft, image: ImageStore.load(garment.imageFile))
                 .navigationTitle("Modifier")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {

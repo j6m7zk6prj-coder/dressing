@@ -86,14 +86,14 @@ jobs:
           }
           xcrun simctl ui "$UDID" appearance light
           shot 01-penderie -demo all
-          shot 02-penderie-selection -demo selected
-          shot 03-collection -demo all -tab collection
-          shot 04-maillots -demo jerseys -tab collection
-          shot 05-fiche -demo detail -tab collection
-          shot 06-ajout -demo add -tab collection
-          xcrun simctl ui "$UDID" appearance dark
-          shot 07-collection-sombre -demo all -tab collection
-          shot 08-fiche-sombre -demo detail -tab collection
+          shot 02-maillot-sorti -demo selected
+          shot 03-chaussure-sortie -demo shoe
+          shot 04-inspecter-chaussure -demo inspect
+          shot 05-inspecter-maillot -demo inspectj
+          shot 06-lumiere -demo light
+          shot 07-ajout -demo add -tab collection
+          shot 08-fiche -demo detail -tab collection
+          shot 09-collection -demo all -tab collection
           ls -la shots
 
       - name: Envoyer les captures (branche screenshots)

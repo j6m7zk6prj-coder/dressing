@@ -110,3 +110,82 @@ sneakers("sneakers", (235, 235, 230))
 sneakers("sneakers2", (30, 30, 34), (240, 240, 240), 7)
 cap("cap", (24, 40, 80))
 print(sorted(os.listdir(out)))
+
+# ---- v2 : dos des maillots et vues d'une chaussure ----
+from PIL import ImageFont
+def font(size):
+    for p in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"]:
+        if os.path.exists(p): return ImageFont.truetype(p, size)
+    return ImageFont.load_default()
+
+def crop_alpha(im):
+    bb = im.getchannel("A").point(lambda a: 255 if a > 20 else 0).getbbox()
+    return im.crop(bb) if bb else im
+
+def jersey_back(name, base, pattern, second, trim, num, player, seed):
+    jersey("_tmp", base, pattern, second, trim, seed)
+    im = Image.open(os.path.join(out, "_tmp.png")); os.remove(os.path.join(out, "_tmp.png"))
+    d = ImageDraw.Draw(im)
+    # pas d'écusson au dos : on repeint la zone avec la couleur de base
+    d.ellipse((530, 210, 620, 300), fill=base + (255,)); d.polygon([(290, 240), (360, 220), (340, 280)], fill=base + (255,))
+    d.ellipse((380, 40, 520, 140), fill=(0, 0, 0, 0))
+    d.chord((370, 30, 530, 110), 0, 180, fill=None, outline=trim, width=16)
+    tc = (255, 255, 255) if sum(base) < 400 else (25, 25, 30)
+    f1, f2 = font(70), font(300)
+    w1 = d.textlength(player.upper(), font=f1); d.text(((W - w1) / 2, 200), player.upper(), font=f1, fill=tc + (255,))
+    w2 = d.textlength(num, font=f2); d.text(((W - w2) / 2, 300), num, font=f2, fill=tc + (255,))
+    crop_alpha(im).save(os.path.join(out, name + ".png"))
+
+def shoe_views(prefix, upper, accent, sole=(240, 240, 236)):
+    def finish(im, name, fade=True):
+        a = np.asarray(im).astype(float)
+        if fade:
+            h = a.shape[0]; a[..., :3] *= np.linspace(1.04, 0.86, h)[:, None, None]
+        crop_alpha(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))).save(os.path.join(out, prefix + "_" + name + ".png"))
+    # profil (pointe à gauche)
+    im = Image.new("RGBA", (1000, 420), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((40, 300, 960, 380), 40, fill=sole + (255,))
+    d.polygon([(50, 320), (80, 220), (300, 150), (520, 120), (760, 60), (900, 70), (950, 180), (955, 320)], fill=upper + (255,))
+    d.ellipse((610, 50, 860, 140), fill=(30, 30, 30, 255))
+    d.polygon([(330, 260), (600, 170), (700, 240), (420, 310)], fill=accent + (255,))
+    for i in range(6): d.line([(430 + i * 45, 150 - i * 6), (470 + i * 45, 200 - i * 6)], fill=(250, 250, 250, 255), width=10)
+    d.rectangle((40, 360, 960, 380), fill=(200, 200, 196, 255))
+    finish(im, "side")
+    # autre profil (pointe à droite)
+    im2 = Image.open(os.path.join(out, prefix + "_side.png")).transpose(Image.FLIP_LEFT_RIGHT)
+    d2 = ImageDraw.Draw(im2); w, h = im2.size
+    d2.ellipse((w * 0.55, h * 0.55, w * 0.62, h * 0.66), fill=accent + (255,))
+    im2.save(os.path.join(out, prefix + "_inner.png"))
+    # dessus (pointe à gauche)
+    im = Image.new("RGBA", (1000, 380), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    d.ellipse((30, 40, 560, 340), fill=sole + (255,)); d.ellipse((380, 30, 970, 350), fill=sole + (255,))
+    d.ellipse((50, 60, 545, 320), fill=upper + (255,)); d.ellipse((400, 55, 950, 325), fill=upper + (255,))
+    d.ellipse((620, 110, 890, 270), fill=(30, 30, 30, 255))
+    for i in range(6): d.line([(330 + i * 45, 140), (330 + i * 45, 240)], fill=(250, 250, 250, 255), width=12)
+    d.rounded_rectangle((300, 150, 600, 230), 30, outline=(225, 225, 225, 255), width=6)
+    finish(im, "top", False)
+    # devant (pointe face à soi)
+    im = Image.new("RGBA", (420, 420), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((20, 300, 400, 390), 40, fill=sole + (255,))
+    d.ellipse((30, 120, 390, 380), fill=upper + (255,))
+    d.rounded_rectangle((90, 40, 330, 250), 60, fill=upper + (255,))
+    d.rounded_rectangle((140, 60, 280, 200), 40, fill=(235, 235, 235, 255))
+    finish(im, "front")
+    # arrière (talon)
+    im = Image.new("RGBA", (420, 520), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    d.rounded_rectangle((30, 400, 390, 500), 40, fill=sole + (255,))
+    d.rounded_rectangle((50, 20, 370, 450), 90, fill=upper + (255,))
+    d.rounded_rectangle((150, 30, 270, 300), 30, fill=accent + (255,))
+    d.ellipse((90, 0, 330, 90), fill=(30, 30, 30, 255))
+    finish(im, "rear")
+
+jersey_back("j1_back", (16, 38, 86), "stripes", (170, 20, 40), (240, 240, 240), "10", "Diallo", 1)
+jersey_back("j2_back", (245, 245, 245), "sash", (200, 20, 30), (20, 20, 20), "4", "Ruiz", 2)
+jersey_back("j3_back", (250, 200, 20), None, None, (20, 60, 140), "9", "Moreno", 3)
+jersey_back("j4_back", (20, 120, 60), "hoops", (245, 245, 245), (245, 245, 245), "8", "Byrne", 4)
+jersey_back("j5_back", (130, 20, 40), "chest", (240, 190, 60), (240, 190, 60), "10", "Ricci", 5)
+jersey_back("j6_back", (25, 25, 28), "half", (90, 160, 220), (230, 230, 230), "7", "Vidal", 6)
+shoe_views("shoeA", (236, 236, 232), (120, 130, 140))
+shoe_views("shoeB", (36, 36, 40), (230, 230, 230), (245, 245, 245))
+for n in ["hoodie", "hoodie2", "jeans", "cap", "j1", "j2", "j3", "j4", "j5", "j6"]:
+    p = os.path.join(out, n + ".png"); crop_alpha(Image.open(p)).save(p)

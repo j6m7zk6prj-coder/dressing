@@ -11,11 +11,14 @@ struct WardrobeView: View {
     @State private var filter: Category?
     @State private var adding = false
     @State private var detail: Garment?
+    @State private var inspecting: Garment?
+    @State private var showLight = Demo.state == "light"
+    @State private var light = LightSettings.load()
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(red: 0.09, green: 0.08, blue: 0.07).ignoresSafeArea()
+                Color(red: 0.07, green: 0.065, blue: 0.06).ignoresSafeArea()
                 if garments.isEmpty {
                     ContentUnavailableView {
                         Label("Ta penderie est vide", systemImage: "hanger")
@@ -26,13 +29,13 @@ struct WardrobeView: View {
                     }
                     .foregroundStyle(.white)
                 } else {
-                    WardrobeSceneView(items: items, selected: $selected)
+                    WardrobeSceneView(items: items, selected: $selected, light: light)
                         .ignoresSafeArea()
                 }
             }
             .safeAreaInset(edge: .bottom) {
                 if let id = selected, let g = garments.first(where: { $0.id == id }) {
-                    SelectedCard(garment: g, onOpen: { detail = g }, onClose: { selected = nil })
+                    SelectedCard(garment: g, onInspect: { inspecting = g }, onOpen: { detail = g }, onClose: { selected = nil })
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -63,64 +66,310 @@ struct WardrobeView: View {
                     }
                     .accessibilityLabel("Filtrer")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showLight = true } label: { Image(systemName: "lightbulb") }
+                        .accessibilityLabel("Lumière")
                     Button { adding = true } label: { Image(systemName: "plus") }
                         .accessibilityLabel("Ajouter un habit")
                 }
             }
             .sheet(isPresented: $adding) { AddGarmentView() }
+            .sheet(isPresented: $showLight) {
+                LightingSheet(settings: $light)
+                    .presentationDetents([.medium, .large])
+                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            }
             .sheet(item: $detail) { g in
                 NavigationStack { GarmentDetailView(garment: g, onShowInWardrobe: nil) }
             }
+            .fullScreenCover(item: $inspecting) { g in InspectView(garment: g, light: light) }
+            .onChange(of: light) { _, l in l.save() }
             .onChange(of: focusID) { _, id in
                 if let id { filter = nil; selected = id; focusID = nil }
             }
             .onAppear {
                 if Demo.state == "selected" { selected = garments.first(where: { $0.category == .jersey })?.id }
+                if Demo.state == "shoe" { selected = garments.first(where: { $0.category == .shoes })?.id }
+                if Demo.state == "inspect" { inspecting = garments.first(where: { $0.category == .shoes }) }
+                if Demo.state == "inspectj" { inspecting = garments.first(where: { $0.category == .jersey }) }
             }
         }
     }
 
     private var items: [WardrobeItem] {
-        garments.filter { filter == nil || $0.category == filter }
-            .map { WardrobeItem(id: $0.id, category: $0.category, imageFile: $0.imageFile) }
+        garments.filter { filter == nil || $0.category == filter }.map(\.wardrobeItem)
+    }
+}
+
+extension Garment {
+    var wardrobeItem: WardrobeItem {
+        var files: [PhotoView: String] = [:]
+        for v in PhotoView.allCases { if let f = file(v) { files[v] = f } }
+        return WardrobeItem(id: id, category: category, files: files, size: size)
     }
 }
 
 /// La fiche résumée de l'habit sorti de la penderie.
 struct SelectedCard: View {
     let garment: Garment
+    var onInspect: () -> Void
     var onOpen: () -> Void
     var onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(garment.title).font(.headline).lineLimit(1)
-                Text(garment.subtitle.isEmpty ? garment.category.singular : garment.subtitle)
-                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                if let v = garment.value ?? garment.purchasePrice {
-                    Text(Money.format(v)).font(.subheadline.weight(.semibold).monospacedDigit())
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(garment.title).font(.headline).lineLimit(1)
+                    Text(garment.subtitle.isEmpty ? garment.category.singular : garment.subtitle)
+                        .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
+                Spacer(minLength: 8)
+                if let v = garment.value ?? garment.purchasePrice {
+                    Text(Money.format(v)).font(.headline.monospacedDigit())
+                }
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .secondaryButton()
+                    .accessibilityLabel("Remettre à sa place")
             }
-            Spacer(minLength: 0)
-            Button("Fiche", action: onOpen).secondaryButton()
-            Button(action: onClose) {
-                Image(systemName: "xmark")
+            HStack(spacing: 10) {
+                Button(action: onInspect) {
+                    Label("Inspecter en 3D", systemImage: "rotate.3d").frame(maxWidth: .infinity)
+                }
+                .primaryButton()
+                Button(action: onOpen) { Text("Fiche").frame(maxWidth: .infinity) }
+                    .secondaryButton()
             }
-            .secondaryButton()
-            .accessibilityLabel("Remettre sur la tringle")
+            .controlSize(.large)
+            Text("Fais glisser pour le faire tourner")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
         }
         .padding(16)
         .glassPanel(cornerRadius: 26)
     }
 }
 
-// MARK: - La vue SceneKit et les gestes
+// MARK: - Réglages de lumière
+
+struct LightingSheet: View {
+    @Binding var settings: LightSettings
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Ambiances") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(LightSettings.presets, id: \.0) { p in
+                                Button(p.0) { withAnimation { settings = p.1 } }
+                                    .buttonStyle(.bordered)
+                                    .buttonBorderShape(.capsule)
+                                    .tint(settings == p.1 ? .accentColor : .secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                }
+                Section("Spots") {
+                    slider("Intensité", value: $settings.intensity, in: 0.1...2, format: { "\(Int($0 * 100)) %" })
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Couleur")
+                            Spacer()
+                            Text("\(Int(settings.temperature)) K").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                        Slider(value: $settings.temperature, in: 2400...7000, step: 100) {
+                            Text("Température")
+                        } minimumValueLabel: {
+                            Text("Chaude").font(.caption).foregroundStyle(.orange)
+                        } maximumValueLabel: {
+                            Text("Froide").font(.caption).foregroundStyle(.blue)
+                        }
+                    }
+                }
+                Section("Bande LED") {
+                    Toggle("Allumée", isOn: $settings.ledOn)
+                    ColorPicker("Couleur des LED", selection: ledColor, supportsOpacity: false)
+                        .disabled(!settings.ledOn)
+                }
+                Section {
+                    slider("Lumière de la pièce", value: $settings.ambient, in: 0...1.5, format: { "\(Int($0 * 100)) %" })
+                    slider("Exposition", value: $settings.exposure, in: -2...1, format: { String(format: "%+.1f", $0) })
+                } header: {
+                    Text("Pièce et caméra")
+                } footer: {
+                    Text("Si les habits paraissent trop blancs, baisse l’exposition ou l’intensité.")
+                }
+                Section {
+                    Button("Réglages d’origine") { withAnimation { settings = LightSettings() } }
+                }
+            }
+            .navigationTitle("Lumière")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("OK") { dismiss() } } }
+        }
+    }
+
+    private var ledColor: Binding<Color> {
+        Binding(get: { Color(settings.led) }, set: { c in
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(c).getRed(&r, green: &g, blue: &b, alpha: &a)
+            settings.ledColor = [Double(r), Double(g), Double(b)].map { max(0, min(1, $0)) }
+        })
+    }
+
+    private func slider(_ title: String, value: Binding<Double>, in range: ClosedRange<Double>, format: @escaping (Double) -> String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(format(value.wrappedValue)).foregroundStyle(.secondary).monospacedDigit()
+            }
+            Slider(value: value, in: range)
+        }
+    }
+}
+
+// MARK: - Inspecter un habit en 3D, en plein écran
+
+struct InspectView: View {
+    let garment: Garment
+    let light: LightSettings
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            InspectSceneView(item: garment.wardrobeItem, light: light)
+                .ignoresSafeArea()
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(garment.title).font(.headline)
+                    Text(garment.subtitle.isEmpty ? garment.category.singular : garment.subtitle)
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { dismiss() } label: { Image(systemName: "xmark") }
+                    .secondaryButton()
+                    .controlSize(.large)
+                    .accessibilityLabel("Fermer")
+            }
+            .padding(16)
+            .glassPanel(cornerRadius: 24)
+            .padding(.horizontal, 12)
+            .environment(\.colorScheme, .dark)
+        }
+        .overlay(alignment: .bottom) {
+            Text("Un doigt pour tourner · deux doigts pour zoomer ou déplacer · double-touche pour recentrer")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.75))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+        }
+    }
+}
+
+struct InspectSceneView: UIViewRepresentable {
+    let item: WardrobeItem
+    let light: LightSettings
+
+    func makeUIView(context: Context) -> SCNView {
+        let v = SCNView()
+        let scene = SCNScene()
+        scene.lightingEnvironment.contents = Materials.tex("studio_env.jpg")
+        scene.lightingEnvironment.intensity = 0.9 * CGFloat(max(0.3, light.ambient))
+        scene.background.contents = UIColor(red: 0.08, green: 0.075, blue: 0.07, alpha: 1)
+
+        let holder = SCNNode()
+        if let model = ModelFactory.node(for: item) {
+            if item.category.hangs {
+                let hanger = HangerModel.make(width: item.category == .pants ? 0.38 : 0.43)
+                holder.addChildNode(hanger)
+                model.position = SCNVector3(0, -0.052, 0)
+            }
+            holder.addChildNode(model)
+        }
+        let (minB, maxB) = holder.boundingBox
+        let center = SCNVector3((minB.x + maxB.x) / 2, (minB.y + maxB.y) / 2, (minB.z + maxB.z) / 2)
+        holder.position = SCNVector3(-center.x, -minB.y, -center.z)
+        if item.category == .shoes { holder.eulerAngles.y = -0.6 }
+        scene.rootNode.addChildNode(holder)
+        let size = max(maxB.x - minB.x, maxB.y - minB.y, maxB.z - minB.z)
+
+        // Sol sombre légèrement réfléchissant, qui reçoit l'ombre.
+        let floor = SCNFloor()
+        floor.reflectivity = 0.06
+        floor.reflectionFalloffEnd = 0.3
+        floor.firstMaterial = Materials.plain(UIColor(white: 0.12, alpha: 1), roughness: 0.6)
+        let floorNode = SCNNode(geometry: floor)
+        floorNode.position.y = item.category.hangs ? -0.02 : 0
+        if item.category.hangs { floorNode.position.y = -0.4 }
+        scene.rootNode.addChildNode(floorNode)
+
+        let key = SCNLight()
+        key.type = .spot
+        key.intensity = 650 * CGFloat(light.intensity)
+        key.temperature = CGFloat(light.temperature)
+        key.spotOuterAngle = 70
+        key.castsShadow = true
+        key.shadowMode = .deferred
+        key.shadowSampleCount = 16
+        key.shadowRadius = 6
+        key.shadowColor = UIColor(white: 0, alpha: 0.55)
+        let keyNode = SCNNode()
+        keyNode.light = key
+        keyNode.position = SCNVector3(size * 1.2, size * 2.6 + 0.5, size * 2)
+        keyNode.look(at: SCNVector3(0, (maxB.y - minB.y) / 2, 0))
+        scene.rootNode.addChildNode(keyNode)
+        let rim = SCNLight()
+        rim.type = .directional
+        rim.intensity = 260 * CGFloat(light.intensity)
+        rim.color = light.ledOn ? light.led : UIColor.white
+        let rimNode = SCNNode()
+        rimNode.light = rim
+        rimNode.eulerAngles = SCNVector3(-0.4, .pi * 0.85, 0)
+        scene.rootNode.addChildNode(rimNode)
+
+        let cam = SCNCamera()
+        cam.fieldOfView = 40
+        cam.zNear = 0.01
+        cam.wantsHDR = true
+        cam.exposureOffset = CGFloat(light.exposure)
+        cam.screenSpaceAmbientOcclusionIntensity = 0.8
+        let camNode = SCNNode()
+        camNode.camera = cam
+        let h = maxB.y - minB.y
+        let dist = max(0.35, size * 2.1)
+        camNode.position = SCNVector3(0, h * 0.55 + dist * 0.12, dist)
+        camNode.look(at: SCNVector3(0, h * 0.5, 0))
+        scene.rootNode.addChildNode(camNode)
+
+        v.scene = scene
+        v.pointOfView = camNode
+        v.allowsCameraControl = true
+        v.defaultCameraController.interactionMode = .orbitTurntable
+        v.defaultCameraController.inertiaEnabled = true
+        v.defaultCameraController.target = SCNVector3(0, h * 0.5, 0)
+        v.defaultCameraController.minimumVerticalAngle = -10
+        v.defaultCameraController.maximumVerticalAngle = 80
+        v.antialiasingMode = .multisampling4X
+        v.backgroundColor = UIColor(red: 0.08, green: 0.075, blue: 0.07, alpha: 1)
+        if Demo.state?.hasPrefix("inspect") == true { camNode.position = SCNVector3(dist * 0.6, h * 0.55 + dist * 0.2, dist * 0.8); camNode.look(at: SCNVector3(0, h * 0.5, 0)) }
+        return v
+    }
+
+    func updateUIView(_ v: SCNView, context: Context) {}
+}
+
+// MARK: - La vue SceneKit de la penderie et les gestes
 
 struct WardrobeSceneView: UIViewRepresentable {
     let items: [WardrobeItem]
     @Binding var selected: UUID?
+    let light: LightSettings
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -130,9 +379,8 @@ struct WardrobeSceneView: UIViewRepresentable {
         v.pointOfView = context.coordinator.world.cameraNode
         v.antialiasingMode = .multisampling4X
         v.preferredFramesPerSecond = 60
-        v.backgroundColor = UIColor(red: 0.09, green: 0.08, blue: 0.07, alpha: 1)
+        v.backgroundColor = UIColor(red: 0.07, green: 0.065, blue: 0.06, alpha: 1)
         v.rendersContinuously = false
-        v.isJitteringEnabled = true
         let c = context.coordinator
         v.addGestureRecognizer(UIPanGestureRecognizer(target: c, action: #selector(Coordinator.pan(_:))))
         v.addGestureRecognizer(UIPinchGestureRecognizer(target: c, action: #selector(Coordinator.pinch(_:))))
@@ -140,6 +388,7 @@ struct WardrobeSceneView: UIViewRepresentable {
         c.view = v
         c.world.build(items)
         c.built = items
+        c.world.apply(light)
         if let s = selected { c.world.select(s) }
         return v
     }
@@ -151,6 +400,7 @@ struct WardrobeSceneView: UIViewRepresentable {
             c.world.build(items)
             c.built = items
         }
+        if c.light != light { c.world.apply(light); c.light = light }
         if c.world.selected != selected { c.world.select(selected) }
     }
 
@@ -158,9 +408,11 @@ struct WardrobeSceneView: UIViewRepresentable {
         var parent: WardrobeSceneView
         let world = WardrobeScene()
         var built: [WardrobeItem] = []
+        var light = LightSettings.load()
         weak var view: SCNView?
         private var startX: Float = 0
         private var startDistance: Float = 0
+        private var last: CGPoint = .zero
         private var velocityLink: CADisplayLink?
         private var velocity: Float = 0
 
@@ -168,12 +420,19 @@ struct WardrobeSceneView: UIViewRepresentable {
 
         @objc func pan(_ g: UIPanGestureRecognizer) {
             guard let v = view else { return }
+            // Habit sorti : le doigt le fait tourner. Sinon : on parcourt la penderie.
+            if world.selected != nil {
+                let t = g.translation(in: v)
+                if g.state == .began { last = .zero }
+                world.rotateSelected(dx: Float(t.x - last.x) * 0.012, dy: Float(t.y - last.y) * 0.008)
+                last = t
+                return
+            }
             let scale = Float(world.camDistance) / Float(max(1, v.bounds.width)) * 1.1
             switch g.state {
             case .began:
                 velocityLink?.invalidate()
                 startX = world.camX
-                if parent.selected != nil { parent.selected = nil }
             case .changed:
                 world.camX = startX - Float(g.translation(in: v).x) * scale
                 world.updateCamera(animated: false)

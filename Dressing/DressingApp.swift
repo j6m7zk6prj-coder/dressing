@@ -76,14 +76,25 @@ enum Demo {
             S(img: "hoodie", cat: .top, name: "Sweat à capuche gris", brand: "Carhartt", size: "L", paid: 89, value: 60),
             S(img: "hoodie2", cat: .jacket, name: "Hoodie kaki", brand: "Stone Island", size: "M", paid: 180, value: 150),
             S(img: "jeans", cat: .pants, name: "Jean brut", brand: "Levi’s", size: "32", paid: 110, value: 80),
-            S(img: "sneakers", cat: .shoes, name: "Baskets blanches", brand: "Veja", size: "43", paid: 140, value: 100),
-            S(img: "sneakers2", cat: .shoes, name: "Baskets noires", brand: "Adidas", size: "43", paid: 120, value: 90),
+            S(img: "shoeA", cat: .shoes, name: "Gel blanches", brand: "Asics", size: "42,5", paid: 140, value: 120),
+            S(img: "shoeB", cat: .shoes, name: "Runner noires", brand: "Adidas", size: "43", paid: 120, value: 90),
             S(img: "cap", cat: .accessory, name: "Casquette marine", brand: "New Era", size: "Unique", paid: 35, value: 30),
         ]
         for (i, s) in list.enumerated() {
-            guard let img = image(s.img), let file = ImageStore.save(img) else { continue }
             let g = Garment(category: s.cat)
-            g.imageFile = file
+            var views: [String: String] = [:]
+            if s.cat == .shoes {
+                guard let side = image(s.img + "_side"), let f = ImageStore.save(side) else { continue }
+                g.imageFile = f
+                for v in ["top", "front", "inner", "rear"] {
+                    if let im = image(s.img + "_" + v), let f = ImageStore.save(im) { views[v] = f }
+                }
+            } else {
+                guard let img = image(s.img), let file = ImageStore.save(img) else { continue }
+                g.imageFile = file
+                if let back = image(s.img + "_back"), let f = ImageStore.save(back) { views["back"] = f }
+            }
+            g.views = views
             g.club = s.club; g.season = s.season; g.kit = s.kit; g.player = s.player; g.number = s.number
             g.version = s.version; g.name = s.name; g.brand = s.brand; g.size = s.size
             g.purchasePrice = s.paid; g.value = s.value; g.favorite = s.fav; g.signed = s.signed

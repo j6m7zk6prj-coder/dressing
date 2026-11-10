@@ -54,6 +54,52 @@ enum Category: String, CaseIterable, Identifiable, Codable {
 
     /// Accroché sur la tringle.
     var hangs: Bool { [.jersey, .top, .jacket, .pants].contains(self) }
+
+    /// Les photos à prendre pour construire le modèle 3D.
+    var requiredViews: [PhotoView] { self == .shoes ? [.side, .top, .front] : [.front, .back] }
+    var optionalViews: [PhotoView] { self == .shoes ? [.inner, .rear] : [] }
+    var mainView: PhotoView { self == .shoes ? .side : .front }
+}
+
+/// Une photo d'un côté de l'habit.
+enum PhotoView: String, CaseIterable, Identifiable, Codable {
+    case front, back, side, inner, top, rear
+    var id: String { rawValue }
+
+    func label(for c: Category) -> String {
+        switch self {
+        case .front: return c == .shoes ? "Devant (pointe)" : "Devant"
+        case .back: return "Dos"
+        case .side: return "Profil extérieur"
+        case .inner: return "Profil intérieur"
+        case .top: return "Dessus"
+        case .rear: return "Arrière (talon)"
+        }
+    }
+
+    func guide(for c: Category) -> String {
+        switch self {
+        case .front: return c == .shoes
+            ? "La pointe face à toi, téléphone à hauteur de la chaussure."
+            : "À plat ou sur un cintre, bien de face, tout l’habit dans le cadre."
+        case .back: return "Retourne l’habit et prends le dos de la même façon (flocage visible)."
+        case .side: return "De profil, pointe vers la gauche, téléphone à hauteur de la semelle."
+        case .inner: return "L’autre côté, pointe vers la droite."
+        case .top: return "Vue de dessus, pointe vers la gauche, téléphone bien parallèle au sol."
+        case .rear: return "Le talon face à toi, à hauteur de la chaussure."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .front: return "arrow.down.to.line"
+        case .back: return "arrow.uturn.backward"
+        case .side: return "arrow.left"
+        case .inner: return "arrow.right"
+        case .top: return "arrow.down"
+        case .rear: return "arrow.up.to.line"
+        }
+    }
 }
 
 enum KitType: String, CaseIterable, Identifiable, Codable {
@@ -124,6 +170,8 @@ final class Garment {
     /// Image détourée (PNG) dans le dossier de l'app.
     var imageFile: String = ""
     var favorite: Bool = false
+    /// Les autres photos détourées (dos, dessus, profils…), en JSON { vue: fichier }.
+    var viewsData: Data?
 
     // Maillots
     var club: String = ""
@@ -138,6 +186,19 @@ final class Garment {
     init(category: Category = .jersey) {
         self.categoryRaw = category.rawValue
     }
+
+    var views: [String: String] {
+        get { viewsData.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:] }
+        set { viewsData = try? JSONEncoder().encode(newValue) }
+    }
+
+    /// Le fichier d'une vue (la vue principale est `imageFile`).
+    func file(_ v: PhotoView) -> String? {
+        if v == category.mainView, !imageFile.isEmpty { return imageFile }
+        return views[v.rawValue]
+    }
+
+    var allFiles: [String] { [imageFile] + Array(views.values) }
 
     var category: Category {
         get { Category(rawValue: categoryRaw) ?? .top }
