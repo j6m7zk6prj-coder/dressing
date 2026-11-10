@@ -134,7 +134,7 @@ struct SelectedCard: View {
             }
             HStack(spacing: 10) {
                 Button(action: onInspect) {
-                    Label("Inspecter en 3D", systemImage: "rotate.3d").frame(maxWidth: .infinity)
+                    Label("En 3D", systemImage: "rotate.3d").lineLimit(1).frame(maxWidth: .infinity)
                 }
                 .primaryButton()
                 Button(action: onOpen) { Text("Fiche").frame(maxWidth: .infinity) }
@@ -410,6 +410,8 @@ struct WardrobeSceneView: UIViewRepresentable {
         c.world.build(items)
         c.built = items
         c.world.apply(light)
+        let screen = UIScreen.main.bounds
+        c.world.viewAspect = Float(screen.width / max(1, screen.height))
         if let s = selected { c.world.select(s) }
         return v
     }
@@ -422,6 +424,7 @@ struct WardrobeSceneView: UIViewRepresentable {
             c.built = items
         }
         if c.light != light { c.world.apply(light); c.light = light }
+        if v.bounds.height > 0 { c.world.viewAspect = Float(v.bounds.width / v.bounds.height) }
         if c.world.selected != selected { c.world.select(selected) }
     }
 

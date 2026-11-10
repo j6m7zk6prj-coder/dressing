@@ -110,7 +110,11 @@ final class WardrobeScene {
     private var rest: [UUID: (SCNVector3, SCNVector3)] = [:]
     private var alphaMaps: [UUID: AlphaMap] = [:]
     private var categories: [UUID: Category] = [:]
+    /// Taille réelle de chaque habit (hauteur, largeur), connue avant même que le modèle 3D soit prêt.
+    private var extents: [UUID: (h: Float, w: Float)] = [:]
     private(set) var selected: UUID?
+    /// Largeur / hauteur de l'écran (pour cadrer en mode portrait).
+    var viewAspect: Float = 0.46
 
     var camX: Float = 0
     var camDistance: Float = 2.7
@@ -224,7 +228,7 @@ final class WardrobeScene {
         generation += 1
         let gen = generation
         root.childNodes.forEach { $0.removeFromParentNode() }
-        holders = [:]; spinners = [:]; rest = [:]; alphaMaps = [:]; categories = [:]
+        holders = [:]; spinners = [:]; rest = [:]; alphaMaps = [:]; categories = [:]; extents = [:]
         selected = nil
         lights.inside = []
 
@@ -301,7 +305,12 @@ final class WardrobeScene {
         spinners[item.id] = spin
         rest[item.id] = (holder.position, holder.eulerAngles)
         categories[item.id] = item.category
-        if let f = item.files[item.category.mainView], let img = ImageStore.texture(f) { alphaMaps[item.id] = AlphaMap(img, maxSide: 64) }
+        if let f = item.files[item.category.mainView], let img = ImageStore.texture(f) {
+            alphaMaps[item.id] = AlphaMap(img, maxSide: 64)
+            let aspect = Float(img.size.height / max(1, img.size.width))
+            let w = item.category == .shoes ? ShoeMesh.length(forSize: item.size) : Float(item.category.realWidth)
+            extents[item.id] = (w * aspect, w)
+        }
     }
 
     private func order(_ c: Category) -> Int {
@@ -497,17 +506,17 @@ final class WardrobeScene {
         out.timingMode = .easeInEaseOut
         holder.runAction(.sequence([lift, out, hangs ? swing(0.07, y: 0) : .wait(duration: 0)]))
 
-        // Cadre l'habit en entier.
-        var (minB, maxB) = holder.boundingBox
-        if maxB.y - minB.y < 0.12 {
-            // Modèle pas encore chargé : taille typique.
-            minB.y = hangs ? -0.8 : 0; maxB.y = hangs ? 0.02 : 0.14
-        }
-        let h = max(0.12, maxB.y - minB.y)
-        lookY = hangs ? target.y + minB.y + h / 2 : target.y + h / 2
+        // Cadre l'habit en entier (hauteur et largeur), en tenant compte de l'écran en portrait.
+        let ext = extents[id] ?? (hangs ? (0.75, 0.56) : (0.12, 0.3))
         let fov = Float((cameraNode.camera?.fieldOfView ?? 52) * .pi / 180)
+        let tanV = tan(fov / 2)
+        let h = ext.h + (hangs ? 0.07 : 0)
+        let w = categories[id] == .shoes ? ext.w * 0.95 : ext.w
+        let needH = h * 1.3 / (2 * tanV)
+        let needW = w * 1.18 / (2 * tanV * max(0.3, viewAspect))
+        lookY = hangs ? target.y - 0.052 - ext.h / 2 + 0.02 : target.y + h / 2
         camX = r.0.x
-        camDistance = forward + (h * 1.75 + 0.06) / (2 * tan(fov / 2))
+        camDistance = forward + max(needH, needW)
         cameraNode.camera?.wantsDepthOfField = true
         cameraNode.camera?.focusDistance = CGFloat(camDistance - forward)
         updateCamera(animated: true, duration: 0.75)
