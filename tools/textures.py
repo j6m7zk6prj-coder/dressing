@@ -36,12 +36,12 @@ S = 1024
 n = fbm(S, S, 6, 3, 1)
 Y, X = np.mgrid[0:S, 0:S] / S
 warp = gaussian_filter(rng.standard_normal((S, S)), 40) * 18
-rings = np.sin((X * 26 + n * 1.4 + warp * 0.12) * np.pi)
+rings = np.sin((X * 70 + n * 2.0 + warp * 0.08) * np.pi)
 grain = 0.5 + 0.5 * rings
 fine = fbm(S, S, 3, 64, 2)
 streak = gaussian_filter(rng.random((S, S)), (30, 0.6))
-t = np.clip(grain * 0.55 + fine * 0.2 + (streak - streak.mean()) * 6 + n * 0.25, 0, 1)
-dark = np.array([52, 32, 20]); light = np.array([118, 78, 50])
+t = np.clip(grain * 0.22 + fine * 0.25 + (streak - streak.mean()) * 9 + n * 0.45, 0, 1)
+dark = np.array([46, 32, 24]); light = np.array([92, 64, 46])
 wood = dark + (light - dark) * t[..., None] ** 1.3
 save(Image.fromarray(wood.astype(np.uint8)), "wood_albedo.jpg")
 save(normal_from_height(gaussian_filter(t, 1.2), 3.0), "wood_normal.png")

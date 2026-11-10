@@ -240,7 +240,7 @@ final class WardrobeScene {
 
     private func buildCarcass() {
         let wood = { (u: Float, v: Float) -> SCNMaterial in
-            let m = Self.pbr("wood_albedo.jpg", normal: "wood_normal.png", roughness: 0.45, repeatU: u * 2, repeatV: v * 2)
+            let m = Self.pbr("wood_albedo.jpg", normal: "wood_normal.png", roughness: 0.45, repeatU: u, repeatV: v)
             m.normal.intensity = 0.35
             return m
         }
@@ -357,7 +357,7 @@ final class WardrobeScene {
         let geo = Self.cloth(width: w, height: h, seed: Float(abs(item.id.hashValue % 1000)) / 100)
         geo.firstMaterial = Self.fabric(img)
         let node = SCNNode(geometry: geo)
-        node.position = SCNVector3(0, -0.075, 0)
+        node.position = SCNVector3(0, -0.045, 0)
         node.castsShadow = true
         return node
     }
@@ -444,7 +444,7 @@ final class WardrobeScene {
             arm.firstMaterial = woodMat
             let a = SCNNode(geometry: arm)
             a.eulerAngles.z = side * (.pi / 2 - 0.3)
-            a.position = SCNVector3(side * 0.115, -0.07, 0.004)
+            a.position = SCNVector3(side * 0.115, -0.07, -0.012)
             n.addChildNode(a)
         }
         let metal = Self.pbr(nil, normal: nil, roughness: 0.2, color: UIColor(white: 0.8, alpha: 1), metalness: 1)
