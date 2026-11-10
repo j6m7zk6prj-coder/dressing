@@ -37,9 +37,11 @@ struct WardrobeView: View {
                         .padding(.bottom, 8)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if !garments.isEmpty {
-                    Text("Glisse pour parcourir · touche un habit pour le sortir")
+                    Text("Glisse pour parcourir, touche un habit pour le sortir")
                         .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .glassPanel(cornerRadius: 20)
                         .padding(.bottom, 10)
                 }
             }

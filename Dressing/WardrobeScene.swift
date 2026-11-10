@@ -23,12 +23,13 @@ final class WardrobeScene {
     // Caméra : position le long de la penderie et recul.
     var camX: Float = 0
     var camDistance: Float = 2.7
-    let camHeight: Float = 1.25
+    var lookY: Float = 1.2
 
     static let railY: Float = 1.86
     static let depth: Float = 0.62
     static let railZ: Float = 0.32
     static let height: Float = 2.36
+    static let drawerTop: Float = 0.62
 
     init() {
         scene.rootNode.addChildNode(root)
@@ -73,14 +74,14 @@ final class WardrobeScene {
 
     private func setupEnvironment() {
         scene.lightingEnvironment.contents = Self.tex("studio_env.jpg")
-        scene.lightingEnvironment.intensity = 1.25
+        scene.lightingEnvironment.intensity = 0.8
         scene.background.contents = UIColor(red: 0.09, green: 0.08, blue: 0.07, alpha: 1)
 
         // Lumière principale (devant, en hauteur) avec ombres douces.
         let key = SCNLight()
         key.type = .spot
-        key.intensity = 950
-        key.temperature = 4300
+        key.intensity = 520
+        key.temperature = 5200
         key.spotInnerAngle = 40
         key.spotOuterAngle = 95
         key.castsShadow = true
@@ -101,7 +102,7 @@ final class WardrobeScene {
         // Lumière d'appoint froide, sans ombre.
         let fill = SCNLight()
         fill.type = .omni
-        fill.intensity = 180
+        fill.intensity = 90
         fill.temperature = 6500
         let fillNode = SCNNode()
         fillNode.light = fill
@@ -116,9 +117,9 @@ final class WardrobeScene {
         cam.zFar = 40
         cam.wantsHDR = true
         cam.wantsExposureAdaptation = false
-        cam.exposureOffset = -0.15
-        cam.bloomIntensity = 0.25
-        cam.bloomThreshold = 0.9
+        cam.exposureOffset = -0.45
+        cam.bloomIntensity = 0.08
+        cam.bloomThreshold = 1.0
         cam.bloomBlurRadius = 10
         cam.screenSpaceAmbientOcclusionIntensity = 1.1
         cam.screenSpaceAmbientOcclusionRadius = 0.12
@@ -141,8 +142,8 @@ final class WardrobeScene {
         SCNTransaction.begin()
         SCNTransaction.animationDuration = animated ? duration : 0
         SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        cameraNode.position = SCNVector3(camX, camHeight + (camDistance - 2.7) * 0.12, Self.railZ + camDistance)
-        cameraNode.look(at: SCNVector3(camX, 1.18, 0.2))
+        cameraNode.position = SCNVector3(camX, lookY + 0.08 + (camDistance - 2.7) * 0.1, Self.railZ + camDistance)
+        cameraNode.look(at: SCNVector3(camX, lookY, 0.2))
         SCNTransaction.commit()
     }
 
@@ -183,7 +184,7 @@ final class WardrobeScene {
         let sStart = -Float(max(0, shoes.count - 1)) * 0.4 / 2
         for (i, item) in shoes.enumerated() {
             guard let node = standing(item, height: 0.17) else { continue }
-            node.position = SCNVector3(sStart + Float(i) * 0.4, 0.105, 0.38)
+            node.position = SCNVector3(sStart + Float(i) * 0.4, Self.drawerTop, 0.36)
             node.eulerAngles = SCNVector3(0, i % 2 == 0 ? 0.18 : -0.18, 0)
             node.name = "item:\(item.id.uuidString)"
             root.addChildNode(node)
@@ -238,7 +239,11 @@ final class WardrobeScene {
     }
 
     private func buildCarcass() {
-        let wood = { (u: Float, v: Float) in Self.pbr("wood_albedo.jpg", normal: "wood_normal.png", roughness: 0.42, repeatU: u, repeatV: v) }
+        let wood = { (u: Float, v: Float) -> SCNMaterial in
+            let m = Self.pbr("wood_albedo.jpg", normal: "wood_normal.png", roughness: 0.45, repeatU: u * 2, repeatV: v * 2)
+            m.normal.intensity = 0.35
+            return m
+        }
         let t: CGFloat = 0.025
         let W = CGFloat(width), H = CGFloat(Self.height), D = CGFloat(Self.depth)
 
@@ -253,7 +258,6 @@ final class WardrobeScene {
         // Fond (un peu plus clair : on le voit beaucoup).
         let back = SCNBox(width: W, height: H, length: 0.012, chamferRadius: 0)
         let backMat = wood(Float(W) / 1.2, Float(H) / 1.2)
-        backMat.multiply.contents = UIColor(white: 1.15, alpha: 1)
         back.firstMaterial = backMat
         let backNode = SCNNode(geometry: back)
         backNode.position = SCNVector3(0, Float(H) / 2, 0.006)
@@ -264,6 +268,30 @@ final class WardrobeScene {
         panel(W + 2 * t, t, D + 0.02, SCNVector3(0, Float(H) + Float(t) / 2, Float(D) / 2 + 0.01), Float(W) / 1.2, 0.5)
         panel(W, 0.09, D, SCNVector3(0, 0.045, Float(D) / 2), Float(W) / 1.2, 0.2)
         panel(W, t, D - 0.02, SCNVector3(0, 2.0, Float(D) / 2 - 0.01), Float(W) / 1.2, 0.5)
+
+        // Commode à deux tiroirs en bas.
+        let drawerTop: Float = Self.drawerTop
+        panel(W, t, D, SCNVector3(0, drawerTop - Float(t) / 2, Float(D) / 2), Float(W) / 1.2, 0.5)
+        let metalHandle = Self.pbr(nil, normal: nil, roughness: 0.25, color: UIColor(white: 0.75, alpha: 1), metalness: 1)
+        let drawerH = (drawerTop - Float(t) - 0.09) / 2
+        for k in 0..<2 {
+            let y = 0.09 + drawerH * (Float(k) + 0.5)
+            let front = SCNBox(width: W - 0.01, height: CGFloat(drawerH - 0.008), length: 0.02, chamferRadius: 0.003)
+            front.firstMaterial = wood(Float(W) / 1.2, 0.4)
+            let f = SCNNode(geometry: front)
+            f.position = SCNVector3(0, y, Float(D) + 0.005)
+            root.addChildNode(f)
+            let handleCount = width > 1.6 ? 2 : 1
+            for h in 0..<handleCount {
+                let hx: Float = handleCount == 1 ? 0 : (h == 0 ? -width / 4 : width / 4)
+                let bar = SCNCapsule(capRadius: 0.007, height: 0.2)
+                bar.firstMaterial = metalHandle
+                let b = SCNNode(geometry: bar)
+                b.eulerAngles.z = .pi / 2
+                b.position = SCNVector3(hx, y, Float(D) + 0.032)
+                root.addChildNode(b)
+            }
+        }
 
         // Tringle chromée.
         let rail = SCNCylinder(radius: 0.012, height: W - 0.02)
@@ -287,7 +315,7 @@ final class WardrobeScene {
         ledMat.lightingModel = .constant
         ledMat.diffuse.contents = UIColor(red: 1, green: 0.86, blue: 0.68, alpha: 1)
         ledMat.emission.contents = UIColor(red: 1, green: 0.86, blue: 0.68, alpha: 1)
-        ledMat.emission.intensity = 2.5
+        ledMat.emission.intensity = 1.1
         led.firstMaterial = ledMat
         let ledNode = SCNNode(geometry: led)
         ledNode.position = SCNVector3(0, 2.0 - Float(t) / 2 - 0.004, Float(D) - 0.06)
@@ -299,8 +327,8 @@ final class WardrobeScene {
             let x = -width / 2 + (Float(i) + 0.5) * width / Float(count)
             let l = SCNLight()
             l.type = .spot
-            l.intensity = 260
-            l.temperature = 3200
+            l.intensity = 85
+            l.temperature = 3900
             l.spotInnerAngle = 60
             l.spotOuterAngle = 120
             l.attenuationStartDistance = 0.2
@@ -481,6 +509,7 @@ final class WardrobeScene {
         guard let id, let node = garmentNodes[id], let rest = restTransforms[id] else {
             cameraNode.camera?.wantsDepthOfField = false
             camDistance = 2.7
+            lookY = 1.2
             updateCamera(animated: true)
             return
         }
@@ -491,9 +520,15 @@ final class WardrobeScene {
         node.eulerAngles = SCNVector3(0, 0, 0)
         SCNTransaction.commit()
         camX = rest.0.x
-        camDistance = rest.0.y > 1.5 ? 1.55 : 1.25
+        // Cadre l'habit en entier : centre de l'habit et recul selon sa hauteur.
+        let (minB, maxB) = node.boundingBox
+        let h = max(0.3, maxB.y - minB.y)
+        let forward: Float = rest.0.y > 1.5 ? 0.42 : 0.3
+        lookY = rest.0.y > 1.5 ? rest.0.y - 0.075 - h / 2 : rest.0.y + h / 2
+        let fov = Float((cameraNode.camera?.fieldOfView ?? 52) * .pi / 180)
+        camDistance = forward + (h * 1.9) / (2 * tan(fov / 2))
         cameraNode.camera?.wantsDepthOfField = true
-        cameraNode.camera?.focusDistance = CGFloat(camDistance - 0.42)
+        cameraNode.camera?.focusDistance = CGFloat(camDistance - forward)
         updateCamera(animated: true)
     }
 
