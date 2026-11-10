@@ -83,7 +83,7 @@ struct WardrobeView: View {
                 NavigationStack { GarmentDetailView(garment: g, onShowInWardrobe: nil) }
             }
             .fullScreenCover(item: $inspecting) { g in InspectView(garment: g, light: light) }
-            .onChange(of: light) { _, l in l.save() }
+            .onChange(of: showLight) { _, open in if !open { light.save() } }
             .onChange(of: focusID) { _, id in
                 if let id { filter = nil; selected = id; focusID = nil }
             }
@@ -105,7 +105,9 @@ extension Garment {
     var wardrobeItem: WardrobeItem {
         var files: [PhotoView: String] = [:]
         for v in PhotoView.allCases { if let f = file(v) { files[v] = f } }
-        return WardrobeItem(id: id, category: category, files: files, size: size)
+        let scan = modelFile.isEmpty ? nil : ScanInfo(file: modelFile, rotation: SIMD3(Float(modelRotX), Float(modelRotY), Float(modelRotZ)),
+                                                      scale: Float(modelScale), hanger: modelHanger)
+        return WardrobeItem(id: id, category: category, files: files, size: size, scan: scan)
     }
 }
 
@@ -307,9 +309,10 @@ struct InspectSceneView: UIViewRepresentable {
         let holder = SCNNode()
         do {
             if item.category.hangs {
-                let hanger = HangerModel.make(width: item.category == .pants ? 0.38 : 0.43)
-                holder.addChildNode(hanger)
-                model.position = SCNVector3(0, -0.052, 0)
+                if item.scan?.hanger ?? true {
+                    holder.addChildNode(HangerModel.make(width: item.category == .pants ? 0.38 : 0.43))
+                }
+                model.position = SCNVector3(0, item.scan == nil ? -0.052 : 0, 0)
             }
             holder.addChildNode(model)
         }

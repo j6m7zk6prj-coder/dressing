@@ -129,9 +129,14 @@ struct AddGarmentView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var preview: PhotoView?
     @State private var saving = false
+    @State private var scanURL: URL?
+    @State private var importingScan = false
 
     private var views: [PhotoView] { draft.category.requiredViews + draft.category.optionalViews }
-    private var ready: Bool { draft.category.requiredViews.allSatisfy { photos[$0] != nil } && working.isEmpty }
+    private var ready: Bool {
+        let photosOK = scanURL != nil ? photos[draft.category.mainView] != nil : draft.category.requiredViews.allSatisfy { photos[$0] != nil }
+        return photosOK && working.isEmpty
+    }
 
     var body: some View {
         NavigationStack {
@@ -150,7 +155,23 @@ struct AddGarmentView: View {
                          ? "Profil, dessus et devant suffisent : l’app reconstruit la forme de la chaussure à sa taille réelle. Ajoute l’autre côté et l’arrière pour un rendu encore plus fidèle."
                          : "Le devant et le dos servent à fabriquer l’habit en 3D, avec du volume. Pose l’habit sur un fond uni, bien éclairé.")
                 }
+                Section {
+                    if let scanURL {
+                        Label(scanURL.lastPathComponent, systemImage: "cube.transparent.fill")
+                        Button("Retirer le scan", role: .destructive) { self.scanURL = nil }
+                    } else {
+                        Button("Importer un scan 3D (USDZ)", systemImage: "cube.transparent") { importingScan = true }
+                        DisclosureGroup("Comment faire un scan avec Scaniverse") { ScanHowTo().padding(.vertical, 6) }
+                    }
+                } header: {
+                    Text("Scan 3D ultra réaliste (facultatif)")
+                } footer: {
+                    Text("Avec un scan, seule la photo principale est demandée : le scan sert de modèle 3D.")
+                }
                 GarmentFields(draft: $draft)
+            }
+            .fileImporter(isPresented: $importingScan, allowedContentTypes: ScanFormats.types) { result in
+                if case let .success(url) = result { scanURL = url }
             }
             .navigationTitle("Nouvel habit")
             .navigationBarTitleDisplayMode(.inline)
@@ -268,6 +289,10 @@ struct AddGarmentView: View {
             if v == draft.category.mainView { g.imageFile = file } else { views[v.rawValue] = file }
         }
         g.views = views
+        if let scanURL, let name = ImageStore.saveModel(from: scanURL) {
+            g.modelFile = name
+            g.modelHanger = true
+        }
         context.insert(g)
         try? context.save()
         UINotificationFeedbackGenerator().notificationOccurred(.success)

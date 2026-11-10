@@ -75,7 +75,7 @@ struct CollectionView: View {
             }
             .sheet(isPresented: $adding) { AddGarmentView(initialCategory: filter ?? .jersey) }
             .onAppear {
-                if Demo.state == "detail", let g = garments.first(where: { $0.category == .jersey && $0.signed }) { path = [g] }
+                if Demo.state == "detail" || Demo.state == "scan", let g = garments.first(where: { $0.category == .jersey && $0.signed }) { path = [g] }
             }
         }
     }
@@ -195,6 +195,7 @@ struct GarmentDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var editing = false
+    @State private var scanning = false
     @State private var confirmDelete = false
 
     var body: some View {
@@ -276,6 +277,7 @@ struct GarmentDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Modifier", systemImage: "pencil") { editing = true }
+                    Button(garment.modelFile.isEmpty ? "Ajouter un scan 3D" : "Scan 3D", systemImage: "cube.transparent") { scanning = true }
                     if let onShowInWardrobe {
                         Button("Voir dans la penderie", systemImage: "hanger") { onShowInWardrobe() }
                     }
@@ -288,6 +290,8 @@ struct GarmentDetailView: View {
             }
         }
         .sheet(isPresented: $editing) { EditGarmentView(garment: garment) }
+        .sheet(isPresented: $scanning) { ScanSheet(garment: garment) }
+        .onAppear { if Demo.state == "scan" { scanning = true } }
         .confirmationDialog("Supprimer \(garment.title) ?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Supprimer", role: .destructive) {
                 garment.allFiles.forEach(ImageStore.delete)

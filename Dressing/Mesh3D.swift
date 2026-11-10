@@ -121,8 +121,11 @@ enum Materials {
     static let chrome = plain(UIColor(white: 0.86, alpha: 1), roughness: 0.16, metalness: 1)
 }
 
-// MARK: - Un habit en volume : devant et dos, bombés, qui se rejoignent sur les bords
+// MARK: - Un habit en volume : « gonflé » à partir de sa silhouette
 
+/// Le devant et le dos partent du contour exact de l'habit (manches, col, ourlet) et s'écartent
+/// vers l'intérieur selon la distance au bord : ils se rejoignent partout sur le contour,
+/// sans trou ni effet « feuille de papier », avec des bords arrondis comme un vrai tissu porté.
 enum ClothMesh {
     /// Nœud de l'habit, le haut (col) à l'origine, le vêtement vers le bas, face avant vers +z.
     static func make(front: UIImage, back: UIImage?, width w: Float, seed: Float, depth: Float = 0.05, folds: Float = 0.012) -> SCNNode {
@@ -130,9 +133,10 @@ enum ClothMesh {
         let h = w * aspect
         let node = SCNNode()
         node.name = "cloth"
-        let f = surface(width: w, height: h, side: 1, seed: seed, depth: depth, folds: folds)
+        let field = InflationField(front, columns: 72)
+        let f = surface(field, width: w, height: h, side: 1, seed: seed, depth: depth, folds: folds)
         f.firstMaterial = Materials.fabric(front)
-        let b = surface(width: w, height: h, side: -1, seed: seed, depth: depth * 0.8, folds: folds)
+        let b = surface(field, width: w, height: h, side: -1, seed: seed, depth: depth * 0.85, folds: folds)
         b.firstMaterial = Materials.fabric(back ?? front.flippedHorizontally())
         let fn = SCNNode(geometry: f), bn = SCNNode(geometry: b)
         fn.castsShadow = true; bn.castsShadow = true
@@ -141,28 +145,38 @@ enum ClothMesh {
         return node
     }
 
-    /// Une face : bombée au torse, plis en bas ; `side` = 1 (devant, vers +z) ou -1 (dos, vers -z).
-    static func surface(width w: Float, height h: Float, side: Float, seed: Float, depth: Float, folds: Float) -> SCNGeometry {
-        let nx = 24, ny = 34
-        func z(_ u: Float, _ v: Float) -> Float {
-            let x = u - 0.5
-            // Volume du torse (maximum vers le haut du ventre), nul sur les bords pour fermer l'habit.
-            let body = depth * max(0, cos(x * .pi)) * (0.45 + 0.55 * sin(min(1, v * 1.15) * .pi * 0.85 + 0.25))
-            let hem = folds * v * v * sin(x * 21 + seed * 3) + folds * 0.5 * v * sin(x * 8.5 + seed)
-            return side * body + hem
-        }
-        var verts: [SCNVector3] = [], norms: [SCNVector3] = [], uvs: [CGPoint] = []
+    /// Une face : `side` = 1 (devant, vers +z) ou -1 (dos, vers -z).
+    static func surface(_ field: InflationField, width w: Float, height h: Float, side: Float, seed: Float, depth: Float, folds: Float) -> SCNGeometry {
+        let nx = field.cols - 1, ny = field.rows - 1
+        var zs = [Float](repeating: 0, count: field.cols * field.rows)
         for j in 0...ny {
             for i in 0...nx {
                 let u = Float(i) / Float(nx), v = Float(j) / Float(ny)
-                let e: Float = 0.004
-                let dzdx = (z(u + e, v) - z(u - e, v)) / (2 * e * w)
-                let dzdy = (z(u, v + e) - z(u, v - e)) / (2 * e * h)
-                var n = SIMD3<Float>(-dzdx, dzdy, 1) * side
+                let d = field.value(i, j)
+                // Profil arrondi (quart de cercle) : bord fin, puis volume vers le centre.
+                let t = min(1, d)
+                let round = sqrt(max(0, 1 - (1 - t) * (1 - t)))
+                // Plus de volume au torse qu'aux manches et en bas.
+                let torso = 0.75 + 0.25 * sin(min(1, v * 1.1) * .pi * 0.85 + 0.3)
+                let x = u - 0.5
+                let hem = folds * v * v * sin(x * 21 + seed * 3) * t + folds * 0.4 * v * sin(x * 8.5 + seed)
+                zs[j * field.cols + i] = side * depth * round * torso + hem
+            }
+        }
+        var verts: [SCNVector3] = [], norms: [SCNVector3] = [], uvs: [CGPoint] = []
+        let dx = w / Float(nx), dy = h / Float(ny)
+        for j in 0...ny {
+            for i in 0...nx {
+                let z = zs[j * field.cols + i]
+                let zl = zs[j * field.cols + max(0, i - 1)], zr = zs[j * field.cols + min(nx, i + 1)]
+                let zu = zs[max(0, j - 1) * field.cols + i], zd = zs[min(ny, j + 1) * field.cols + i]
+                let dzdx = (zr - zl) / (dx * Float(min(nx, i + 1) - max(0, i - 1)))
+                let dzdy = (zu - zd) / (dy * Float(min(ny, j + 1) - max(0, j - 1)))
+                var n = SIMD3<Float>(-dzdx, -dzdy, 1) * side
                 n = simd_normalize(n)
-                verts.append(SCNVector3((u - 0.5) * w, -v * h, z(u, v)))
+                let u = Float(i) / Float(nx), v = Float(j) / Float(ny)
+                verts.append(SCNVector3((u - 0.5) * w, -v * h, z))
                 norms.append(SCNVector3(n.x, n.y, n.z))
-                // Le dos se lit de derrière : l'image est retournée.
                 uvs.append(CGPoint(x: CGFloat(side > 0 ? u : 1 - u), y: CGFloat(v)))
             }
         }
@@ -170,6 +184,8 @@ enum ClothMesh {
         let row = nx + 1
         for j in 0..<ny {
             for i in 0..<nx {
+                // On ne garde que les carrés qui touchent le tissu (le reste est transparent).
+                if field.value(i, j) <= 0 && field.value(i + 1, j) <= 0 && field.value(i, j + 1) <= 0 && field.value(i + 1, j + 1) <= 0 { continue }
                 let a = Int32(j * row + i), b = a + 1, c = Int32((j + 1) * row + i), d = c + 1
                 if side > 0 { idx += [a, c, b, b, c, d] } else { idx += [a, b, c, b, d, c] }
             }
@@ -178,6 +194,44 @@ enum ClothMesh {
                                      SCNGeometrySource(textureCoordinates: uvs)],
                            elements: [SCNGeometryElement(indices: idx, primitiveType: .triangles)])
     }
+}
+
+/// Distance au bord de la silhouette, normalisée (0 sur le contour, 1 au plus épais).
+struct InflationField {
+    let cols: Int, rows: Int
+    private var d: [Float]
+
+    init(_ image: UIImage, columns: Int) {
+        let aspect = Float(image.size.height / max(1, image.size.width))
+        cols = columns
+        rows = max(8, Int(Float(columns) * aspect))
+        d = [Float](repeating: 0, count: cols * rows)
+        guard let map = AlphaMap(image, maxSide: 512) else { return }
+        let big: Float = 1e6
+        for j in 0..<rows {
+            for i in 0..<cols {
+                let inside = map.sample(Float(i) / Float(cols - 1), Float(j) / Float(rows - 1)) > 0.5
+                d[j * cols + i] = inside ? big : 0
+            }
+        }
+        // Transformée de distance (chanfrein 3-4), deux passes.
+        func at(_ i: Int, _ j: Int) -> Float { (i < 0 || j < 0 || i >= cols || j >= rows) ? 0 : d[j * cols + i] }
+        for j in 0..<rows {
+            for i in 0..<cols where d[j * cols + i] > 0 {
+                d[j * cols + i] = min(d[j * cols + i], at(i - 1, j) + 3, at(i, j - 1) + 3, at(i - 1, j - 1) + 4, at(i + 1, j - 1) + 4)
+            }
+        }
+        for j in stride(from: rows - 1, through: 0, by: -1) {
+            for i in stride(from: cols - 1, through: 0, by: -1) where d[j * cols + i] > 0 {
+                d[j * cols + i] = min(d[j * cols + i], at(i + 1, j) + 3, at(i, j + 1) + 3, at(i + 1, j + 1) + 4, at(i - 1, j + 1) + 4)
+            }
+        }
+        // Normalise : le torse atteint 1 à environ 18 % de la largeur depuis le bord.
+        let scale = Float(cols) * 0.18 * 3
+        for k in 0..<d.count { d[k] = min(1, d[k] / scale) }
+    }
+
+    func value(_ i: Int, _ j: Int) -> Float { d[min(rows - 1, max(0, j)) * cols + min(cols - 1, max(0, i))] }
 }
 
 // MARK: - Une chaussure reconstruite à partir de ses silhouettes (enveloppe visuelle)

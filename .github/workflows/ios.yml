@@ -94,6 +94,8 @@ jobs:
           shot 07-ajout -demo add -tab collection
           shot 08-fiche -demo detail -tab collection
           shot 09-collection -demo all -tab collection
+          shot 10-scan -demo scan -tab collection
+          shot 11-penderie-maillots -demo all
           ls -la shots
 
       - name: Envoyer les captures (branche screenshots)

@@ -44,6 +44,59 @@ struct WardrobeItem: Equatable {
     let category: Category
     let files: [PhotoView: String]
     let size: String
+    var scan: ScanInfo? = nil
+}
+
+/// Un scan 3D importé (Scaniverse, Polycam…) et comment le poser.
+struct ScanInfo: Equatable {
+    let file: String
+    var rotation: SIMD3<Float>
+    var scale: Float
+    var hanger: Bool
+
+    var key: String { "\(file)-\(rotation.x)-\(rotation.y)-\(rotation.z)-\(scale)-\(hanger)" }
+}
+
+/// Charge un scan, l'oriente et le met à la taille réelle.
+enum ScanLoader {
+    static func load(_ s: ScanInfo, category: Category, size: String) -> SCNNode? {
+        let url = ImageStore.url(s.file)
+        guard let scene = try? SCNScene(url: url, options: [.convertToYUp: true, .checkConsistency: true]) else { return nil }
+        let content = SCNNode()
+        for c in scene.rootNode.childNodes { content.addChildNode(c) }
+        content.enumerateHierarchy { n, _ in
+            n.castsShadow = true
+            n.geometry?.materials.forEach { m in
+                if m.lightingModel == .constant || m.lightingModel == .lambert { m.lightingModel = .physicallyBased; m.roughness.contents = 0.8 }
+            }
+        }
+        content.eulerAngles = SCNVector3(s.rotation.x, s.rotation.y, s.rotation.z)
+        let wrap = SCNNode()
+        wrap.addChildNode(content)
+        let (mn, mx) = wrap.boundingBox
+        let dx = mx.x - mn.x, dy = mx.y - mn.y, dz = mx.z - mn.z
+        guard max(dx, dy, dz) > 0 else { return nil }
+        let target: Float, measure: Float
+        switch category {
+        case .shoes: target = ShoeMesh.length(forSize: size); measure = max(dx, dz)
+        case .accessory: target = 0.24; measure = max(dx, dz)
+        case .pants: target = 1.0; measure = dy
+        case .jacket: target = 0.75; measure = dy
+        default: target = 0.72; measure = dy
+        }
+        let k = target / measure * s.scale
+        wrap.scale = SCNVector3(k, k, k)
+        let cx = (mn.x + mx.x) / 2, cz = (mn.z + mx.z) / 2
+        if category.hangs {
+            wrap.position = SCNVector3(-cx * k, -mx.y * k + (s.hanger ? -0.01 : 0.03), -cz * k)
+        } else {
+            wrap.position = SCNVector3(-cx * k, -mn.y * k, -cz * k)
+        }
+        let outer = SCNNode()
+        outer.name = "scan"
+        outer.addChildNode(wrap)
+        return outer
+    }
 }
 
 /// Fabrique (et garde en mémoire) le modèle 3D de chaque habit.
@@ -60,12 +113,16 @@ enum ModelFactory {
     }
 
     static func node(for item: WardrobeItem) -> SCNNode? {
-        let key = item.id.uuidString + item.files.values.sorted().joined()
+        let key = item.id.uuidString + item.files.values.sorted().joined() + (item.scan?.key ?? "")
         lock.lock()
         let cached = cache[key]
         lock.unlock()
         if let n = cached { return n.clone() }
         var made: SCNNode?
+        if let scan = item.scan, let n = ScanLoader.load(scan, category: item.category, size: item.size) {
+            lock.lock(); cache[key] = n; lock.unlock()
+            return n.clone()
+        }
         let main = item.category.mainView
         guard let mainFile = item.files[main], let mainImg = ImageStore.texture(mainFile) else { return nil }
         switch item.category {
@@ -171,7 +228,7 @@ final class WardrobeScene {
     /// Applique les réglages de lumière choisis.
     func apply(_ s: LightSettings) {
         let k = CGFloat(s.intensity)
-        scene.lightingEnvironment.contents = Materials.tex("studio_env.jpg")
+        if scene.lightingEnvironment.contents == nil { scene.lightingEnvironment.contents = Materials.tex("studio_env.jpg") }
         scene.lightingEnvironment.intensity = CGFloat(s.ambient) * 0.75
         scene.background.contents = UIColor(red: 0.07, green: 0.065, blue: 0.06, alpha: 1)
         lights.key.intensity = 420 * k
@@ -197,7 +254,7 @@ final class WardrobeScene {
         key.spotOuterAngle = 100
         key.castsShadow = true
         key.shadowMode = .deferred
-        key.shadowSampleCount = 16
+        key.shadowSampleCount = 8
         key.shadowRadius = 5
         key.shadowMapSize = CGSize(width: 2048, height: 2048)
         key.shadowColor = UIColor(white: 0, alpha: 0.5)
@@ -247,11 +304,12 @@ final class WardrobeScene {
         for (i, item) in hanging.enumerated() {
             let holder = SCNNode()
             let spin = SCNNode()
-            let hanger = HangerModel.make(width: item.category == .pants ? 0.38 : 0.43)
-            spin.addChildNode(hanger)
+            if item.scan?.hanger ?? true {
+                spin.addChildNode(HangerModel.make(width: item.category == .pants ? 0.38 : 0.43))
+            }
             ModelFactory.load(item) { [weak self] cloth in
                 guard let self, gen == self.generation, let cloth else { return }
-                cloth.position = SCNVector3(0, -0.052, 0)
+                cloth.position = SCNVector3(0, item.scan == nil ? -0.052 : 0, 0)
                 cloth.opacity = 0
                 spin.addChildNode(cloth)
                 cloth.runAction(.fadeIn(duration: 0.25))

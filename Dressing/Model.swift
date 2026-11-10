@@ -172,6 +172,13 @@ final class Garment {
     var favorite: Bool = false
     /// Les autres photos détourées (dos, dessus, profils…), en JSON { vue: fichier }.
     var viewsData: Data?
+    /// Scan 3D importé (USDZ ou OBJ), et son réglage.
+    var modelFile: String = ""
+    var modelRotX: Double = 0
+    var modelRotY: Double = 0
+    var modelRotZ: Double = 0
+    var modelScale: Double = 1
+    var modelHanger: Bool = true
 
     // Maillots
     var club: String = ""
@@ -198,7 +205,7 @@ final class Garment {
         return views[v.rawValue]
     }
 
-    var allFiles: [String] { [imageFile] + Array(views.values) }
+    var allFiles: [String] { [imageFile, modelFile] + Array(views.values) }
 
     var category: Category {
         get { Category(rawValue: categoryRaw) ?? .top }
@@ -283,6 +290,19 @@ enum ImageStore {
         cache.setObject(img, forKey: key)
         return img
     }
+
+    /// Copie un scan 3D (USDZ, OBJ…) dans l'app et renvoie son nom.
+    static func saveModel(from url: URL) -> String? {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        let name = UUID().uuidString + "." + url.pathExtension.lowercased()
+        do {
+            try FileManager.default.copyItem(at: url, to: folder.appendingPathComponent(name))
+            return name
+        } catch { return nil }
+    }
+
+    static func url(_ name: String) -> URL { folder.appendingPathComponent(name) }
 
     static func delete(_ name: String) {
         guard !name.isEmpty else { return }
